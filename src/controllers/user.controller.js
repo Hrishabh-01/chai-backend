@@ -8,7 +8,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 const generateAccessAndRefreshTokens=async(userId) =>
 {
     try{
-        const user = await User.findById(UserId)
+        const user = await User.findById(userId)
         const accessToken = user.generateAccessToken();
         const refreshToken = user.generateRefreshToken();
 
@@ -104,11 +104,21 @@ const loginUser=asyncHandler(async(req,res)=>{
     //return response
 
     const {email,username,password}=req.body;
-
-    if(!username || !email){
+    // console.log(`email`,email)
+    if(!(username  ||email)){
         throw new ApiError(400,"Please provide username or email");
     }
 
+    //alternave approach of above code if we require either of 
+    //user name or email
+    /*
+    if(!username && !email){
+        throw new ApiError(400,"Please provide username or email");
+    }
+    */
+    
+    
+    
     const user = await User.findOne(
         {
             $or:[{username},{email}]//or is a mongo operator
@@ -124,7 +134,7 @@ const loginUser=asyncHandler(async(req,res)=>{
         throw new ApiError(401,"Invalid Credentials !!");
     }
 
-    const {accessToken,refeshToken}= await generateAccessAndRefreshTokens(user._id)
+    const {accessToken,refreshToken}= await generateAccessAndRefreshTokens(user._id)
 
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
 
@@ -136,12 +146,12 @@ const loginUser=asyncHandler(async(req,res)=>{
     return res
     .status(200)
     .cookie("accessToken",accessToken,options)
-    .cookie("refreshToken",refeshToken,options)
+    .cookie("refreshToken",refreshToken,options)
     .json(
         new ApiResponse(
         200,
         {
-            user:loggedInUser, accessToken,refeshToken
+            user:loggedInUser, accessToken,refreshToken
         },
         "User Logged In Successfully"
     )
