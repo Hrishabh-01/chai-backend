@@ -1,3 +1,3 @@
 # chai aur backend series
 
-This is what a learned from youtube
+This is what i learned from youtube
