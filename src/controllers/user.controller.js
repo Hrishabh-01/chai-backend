@@ -4,6 +4,7 @@ import {User} from "../models/users.model.js";
 import {uploadOnCloudinary} from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
 
 //it will generate access and refresh token
 const generateAccessAndRefreshTokens=async(userId) =>
@@ -345,80 +346,138 @@ const updateUserCoverImage = asyncHandler(async(req,res)=>{
     )
 })
 
-const getUserChannelProfile = asyncHandler(async(req,res)=>{
-    const {username}=req.params // because it comes from url
+// Fetches the profile of a user channel along with subscription and subscriber information
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+    const { username } = req.params; // Extracting username from the URL parameters
 
-    if(!username?.trim){
-        throw new ApiError(400, "username is missing !!")
+    // Check if the username exists and is not empty
+    if (!username?.trim) {
+        throw new ApiError(400, "username is missing !!"); // Throw error if username is invalid
     }
 
-    //aggregation pipeline
-
+    // Aggregation pipeline to fetch user channel details
     const channel = await User.aggregate([
         {
-            $match:{
-                username:username?.toLowerCase()
+            $match: {
+                username: username?.toLowerCase() // Match the username in a case-insensitive manner
             },
-
         },
         {
-            $lookup:{
-                from:"subscriptions",
-                localField:"_id",
-                foreignField:"channel",
-                as:"subscribers"
+            $lookup: { // Lookup subscribers of the channel
+                from: "subscriptions", // Collection name to lookup
+                localField: "_id", // Match User._id
+                foreignField: "channel", // Match with the 'channel' field in subscriptions
+                as: "subscribers" // Alias for the result
             }
         },
         {
-            $lookup:{
-                from:"subscriptions",
-                localField:"_id",
-                foreignField:"subscriber",
-                as:"subscribedTo"
+            $lookup: { // Lookup channels the user has subscribed to
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "subscriber", // Match with the 'subscriber' field in subscriptions
+                as: "subscribedTo"
             }
         },
         {
-            $addFields:{
-                subscriberCount:{
-                    $size:"$subscribers",
+            $addFields: { // Add custom fields for additional information
+                subscriberCount: { 
+                    $size: "$subscribers" // Count the number of subscribers
                 },
-                channelsSubscribedToCount:{
-                    $size:"subscribedTo"
+                channelsSubscribedToCount: { 
+                    $size: "$subscribedTo" // Count the number of channels the user has subscribed to
                 },
-                isSubscribed:{
-                    $condition:{
-                        if:{$in:[req.user?._id,"subscribers.subscriber"]},
-                        then:true,
-                        else:false
+                isSubscribed: { 
+                    $cond: { // Check if the logged-in user is subscribed to this channel
+                        if: { $in: [req.user?._id, "subscribers.subscriber"] }, // Match user ID in subscribers
+                        then: true, // Return true if subscribed
+                        else: false // Return false if not subscribed
                     }
                 }
-
             }
         },
         {
-            $project:{//it gives projection 
-                fullname:1,
-                username:1,
-                subscriberCount:1,
-                channelsSubscribedToCount:1,
-                isSubscribed:1,
-                avatar:1,
-                coverImage:1,
-                email:1,
+            $project: { // Select specific fields to return in the response
+                fullname: 1,
+                username: 1,
+                subscriberCount: 1,
+                channelsSubscribedToCount: 1,
+                isSubscribed: 1,
+                avatar: 1,
+                coverImage: 1,
+                email: 1,
             }
         }
-    ])
+    ]);
 
-    if(!channel?.length){
-        throw new ApiError(404,"Channel does not exists")
+    // If no channel is found, throw a 404 error
+    if (!channel?.length) {
+        throw new ApiError(404, "Channel does not exist");
     }
+
+    // Return the channel details in the response
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, channel[0], "User channel fetched successfully")
+        );
+});
+
+// Fetches the watch history of a user
+const getWatchHistory = asyncHandler(async (req, res) => {
+    // Aggregation pipeline to fetch user watch history
+    const user = await User.aggregate([
+        {
+            $match: {
+                _id: new mongoose.Types.ObjectId(req.user._id) // Match the logged-in user's ID
+            }
+        },
+        {
+            $lookup: { // Lookup watch history videos
+                from: "Video", // Collection name to lookup
+                localField: "watchHistory", // Match User.watchHistory
+                foreignField: "_id", // Match with Video._id
+                as: "watchHistory", // Alias for the result
+                pipeline: [ // Nested pipeline to fetch video owner details
+                    {
+                        $lookup: { // Lookup video owner details
+                            from: "users",
+                            localField: "owner", // Match Video.owner
+                            foreignField: "_id", // Match with User._id
+                            as: "owner", // Alias for the result
+                            pipeline: [ // Inner pipeline for owner projection
+                                {
+                                    $project: { // Select specific fields for the video owner
+                                        fullname: 1,
+                                        username: 1,
+                                        avatar: 1,
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $addFields: { // Add a single owner field
+                            owner: {
+                                $first: "$owner" // Get the first (and only) owner
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ]);
 
     return res
     .status(200)
     .json(
-        new ApiResponse(200,channel[0],"User channel fetched successfully")
+        new ApiResponse(
+            200,
+            user[0].watchHistory,
+            "watch history fetched successfully"
+        )
     )
-})
+});
+
 
 export {
     registerUser,
@@ -430,5 +489,6 @@ export {
     updateAccountDetails,
     updateUserAvatar,
     updateUserCoverImage,
-    getUserChannelProfile
+    getUserChannelProfile,
+    getWatchHistory
 };
